@@ -1,5 +1,8 @@
 {
     "name": "apple-signin-vercel",
     "version": "1.0.0",
-    "main": "api/apple-callback.js"
+    "type": "module",
+    "dependencies": {
+        "jsonwebtoken": "^9.0.0"
+    }
 }
