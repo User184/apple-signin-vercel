@@ -14,10 +14,10 @@ export default async function handler(req, res) {
 
         console.log('Attempting to revoke Apple token');
 
-        // Генерация client_secret для Apple API
+        // Генерируем client_secret для Apple API
         const clientSecret = generateAppleClientSecret();
 
-        // Отзывrefresh token (приоритетный)
+        // Отзываем refresh token (приоритетный)
         const tokenToRevoke = refreshToken || accessToken;
         const tokenType = refreshToken ? 'refresh_token' : 'access_token';
 
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
 }
 
 function generateAppleClientSecret() {
-    // Apple credentials
+    // Apple credentials (НЕ рекомендуется для продакшена!)
     const APPLE_TEAM_ID = 'W6MB6STC78';
     const APPLE_KEY_ID = 'UKGR4F4DC6';
     const APPLE_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
