@@ -1,4 +1,3 @@
-// api/apple-callback.js
 import jwt from 'jsonwebtoken';
 
 export default async function handler(req, res) {
@@ -10,17 +9,34 @@ export default async function handler(req, res) {
     const params = req.method === 'POST' ? req.body : req.query;
 
     try {
-        // Если есть authorization code, обменяем его на access token
+        // Если есть authorization code, обменяем его на токены
         if (params.code) {
             console.log('Authorization code received, exchanging for tokens...');
 
-            const tokenResponse = await exchangeCodeForTokens(params.code);
+            try {
+                const tokenResponse = await exchangeCodeForTokens(params.code);
+                console.log('Token exchange successful');
 
-            if (tokenResponse.access_token) {
-                // Добавляем access_token к параметрам
-                params.access_token = tokenResponse.access_token;
-                params.refresh_token = tokenResponse.refresh_token;
-                console.log('Tokens obtained successfully');
+                // ВАЖНО: Добавляем полученные токены к параметрам
+                if (tokenResponse.access_token) {
+                    params.access_token = tokenResponse.access_token;
+                }
+                if (tokenResponse.refresh_token) {
+                    params.refresh_token = tokenResponse.refresh_token;
+                }
+                if (tokenResponse.id_token) {
+                    params.id_token = tokenResponse.id_token;
+                }
+
+                console.log('Added tokens to params:', {
+                    hasAccessToken: !!tokenResponse.access_token,
+                    hasRefreshToken: !!tokenResponse.refresh_token,
+                    hasIdToken: !!tokenResponse.id_token
+                });
+
+            } catch (error) {
+                console.error('Token exchange failed:', error);
+                // Продолжаем без токенов
             }
         }
 
@@ -32,23 +48,21 @@ export default async function handler(req, res) {
 
                 if (userInfo.sub) {
                     params.userIdentifier = userInfo.sub;
-                    console.log('Found userIdentifier:', userInfo.sub);
                 }
-
                 if (userInfo.email) {
                     params.email = userInfo.email;
-                    console.log('Found email:', userInfo.email);
                 }
             } catch (e) {
                 console.log('Failed to parse user JSON:', e);
             }
         }
 
-        console.log('Final params to send:', Object.keys(params));
-
+        // Создаем intent URL для Android
         const intentUrl = `intent://callback?${new URLSearchParams(params).toString()}#Intent;package=${PACKAGE_NAME};scheme=signinwithapple;end`;
 
-        console.log('Redirecting to:', intentUrl);
+        console.log('Final params keys:', Object.keys(params));
+        console.log('Redirecting to Android app...');
+
         res.redirect(307, intentUrl);
 
     } catch (error) {
@@ -106,6 +120,6 @@ K3ZU4pgW
     }
 
     const tokenData = await response.json();
-    console.log('Token exchange successful');
+    console.log('Token exchange result keys:', Object.keys(tokenData));
     return tokenData;
 }
