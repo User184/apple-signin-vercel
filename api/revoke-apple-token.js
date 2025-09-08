@@ -6,30 +6,33 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { authorizationCode, identityToken, refreshToken } = req.body;
+        const { authorizationCode, identityToken, refreshToken, accessToken } = req.body;
 
         console.log('Received tokens:', {
             hasAuthCode: !!authorizationCode,
             hasIdentityToken: !!identityToken,
-            hasRefreshToken: !!refreshToken
+            hasRefreshToken: !!refreshToken,
+            hasAccessToken: !!accessToken
         });
 
         // Если есть authorizationCode, сначала обменяем его на токены
         let actualRefreshToken = refreshToken;
+        let actualAccessToken = accessToken;
 
-        if (authorizationCode && !refreshToken) {
+        if (authorizationCode && !refreshToken && !accessToken) {
             console.log('Exchanging authorization code for tokens...');
             try {
                 const tokenData = await exchangeCodeForTokens(authorizationCode);
                 actualRefreshToken = tokenData.refresh_token;
-                console.log('Got refresh token from code exchange');
+                actualAccessToken = tokenData.access_token;
+                console.log('Got tokens from code exchange');
             } catch (error) {
                 console.error('Failed to exchange code:', error.message);
             }
         }
 
-        // Определяем токен для отзыва (приоритет: refresh_token > identity_token)
-        const tokenToRevoke = actualRefreshToken || identityToken;
+        // Определяем токен для отзыва (приоритет: refresh_token > access_token)
+        const tokenToRevoke = actualRefreshToken || actualAccessToken;
         const tokenType = actualRefreshToken ? 'refresh_token' : 'access_token';
 
         if (!tokenToRevoke) {
@@ -50,7 +53,7 @@ export default async function handler(req, res) {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: new URLSearchParams({
-                client_id: 'com.astrDevProd.astrology.signin',
+                client_id: 'com.astrDevProd.astrology',
                 client_secret: clientSecret,
                 token: tokenToRevoke,
                 token_type_hint: tokenType
@@ -98,7 +101,7 @@ async function exchangeCodeForTokens(authorizationCode) {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-            client_id: 'com.astrDevProd.astrology.signin',
+            client_id: 'com.astrDevProd.astrology',
             client_secret: clientSecret,
             code: authorizationCode,
             grant_type: 'authorization_code',
@@ -131,7 +134,7 @@ K3ZU4pgW
         iat: now,
         exp: now + 3600,
         aud: 'https://appleid.apple.com',
-        sub: 'com.astrDevProd.astrology.signin',  // ← ВОЗВРАЩАЕМ
+        sub: 'com.astrDevProd.astrology',
     };
 
     return jwt.sign(payload, APPLE_PRIVATE_KEY, {

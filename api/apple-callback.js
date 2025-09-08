@@ -92,7 +92,7 @@ K3ZU4pgW
         iat: now,
         exp: now + 3600,
         aud: 'https://appleid.apple.com',
-        sub: 'com.astrDevProd.astrology.signin',  // ← ВОЗВРАЩАЕМ
+        sub: 'com.astrDevProd.astrology',
     };
 
     const clientSecret = jwt.sign(payload, APPLE_PRIVATE_KEY, {
@@ -107,7 +107,7 @@ K3ZU4pgW
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-            client_id: 'com.astrDevProd.astrology.signin',
+            client_id: 'com.astrDevProd.astrology',
             client_secret: clientSecret,
             code: authorizationCode,
             grant_type: 'authorization_code',

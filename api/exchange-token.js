@@ -5,6 +5,8 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
+    const debugLogs = []; // Для сбора логов
+
     try {
         const { authorizationCode } = req.body;
 
@@ -12,36 +14,41 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'Authorization code required' });
         }
 
+        debugLogs.push('Exchanging authorization code for tokens...');
         console.log('Exchanging authorization code for tokens...');
 
         // Обменяем код на токены
-        const tokenData = await exchangeCodeForTokens(authorizationCode);
+        const result = await exchangeCodeForTokens(authorizationCode, debugLogs);
 
-        console.log('Token exchange successful:', {
-            hasAccessToken: !!tokenData.access_token,
-            hasRefreshToken: !!tokenData.refresh_token
-        });
+        debugLogs.push(`Token exchange successful: hasAccess=${!!result.access_token}, hasRefresh=${!!result.refresh_token}`);
+        console.log(`Token exchange successful: hasAccess=${!!result.access_token}, hasRefresh=${!!result.refresh_token}`);
 
         return res.status(200).json({
             success: true,
-            access_token: tokenData.access_token,
-            refresh_token: tokenData.refresh_token,
-            id_token: tokenData.id_token,
-            expires_in: tokenData.expires_in
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+            id_token: result.id_token,
+            expires_in: result.expires_in,
+            debug_logs: debugLogs // ← ЛОГИ ПРЯМО В ОТВЕТЕ
         });
 
     } catch (error) {
+        debugLogs.push(`Error: ${error.message}`);
         console.error('Error exchanging tokens:', error);
         return res.status(500).json({
             success: false,
             error: 'Token exchange failed',
-            details: error.message
+            details: error.message,
+            debug_logs: debugLogs // ← ЛОГИ ДАЖЕ ПРИ ОШИБКЕ
         });
     }
 }
 
-async function exchangeCodeForTokens(authorizationCode) {
+async function exchangeCodeForTokens(authorizationCode, debugLogs) {
     const clientSecret = generateAppleClientSecret();
+
+    debugLogs.push('Trying with main Bundle ID: com.astrDevProd.astrology');
+    console.log('Trying to exchange token with client_id: com.astrDevProd.astrology');
 
     const response = await fetch('https://appleid.apple.com/auth/token', {
         method: 'POST',
@@ -49,7 +56,7 @@ async function exchangeCodeForTokens(authorizationCode) {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-            client_id: 'com.astrDevProd.astrology.signin',
+            client_id: 'com.astrDevProd.astrology',
             client_secret: clientSecret,
             code: authorizationCode,
             grant_type: 'authorization_code',
@@ -58,10 +65,13 @@ async function exchangeCodeForTokens(authorizationCode) {
 
     if (!response.ok) {
         const errorText = await response.text();
+        debugLogs.push(`Failed with main Bundle ID: ${response.status} - ${errorText}`);
         console.error('Token exchange failed:', response.status, errorText);
         throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
     }
 
+    debugLogs.push('✅ SUCCESS with main Bundle ID!');
+    console.log('SUCCESS with main Bundle ID!');
     return await response.json();
 }
 
