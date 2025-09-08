@@ -1,11 +1,13 @@
 import jwt from 'jsonwebtoken';
 
+/**
+ * Обменивает authorization code на access_token и refresh_token
+ * Автоматически определяет правильный client_id (iOS: Bundle ID, Android: Service ID)
+ */
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
-
-    const debugLogs = []; // Для сбора логов
 
     try {
         const { authorizationCode } = req.body;
@@ -14,63 +16,44 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'Authorization code required' });
         }
 
-        debugLogs.push('Exchanging authorization code for tokens...');
-        console.log('Exchanging authorization code for tokens...');
-
-        // Обменяем код на токены
-        const result = await exchangeCodeForTokens(authorizationCode, debugLogs);
-
-        debugLogs.push(`Token exchange successful: hasAccess=${!!result.access_token}, hasRefresh=${!!result.refresh_token}`);
-        console.log(`Token exchange successful: hasAccess=${!!result.access_token}, hasRefresh=${!!result.refresh_token}`);
+        // Обмениваем код на токены с автоопределением client_id
+        const tokenData = await exchangeCodeForTokens(authorizationCode);
 
         return res.status(200).json({
             success: true,
-            access_token: result.access_token,
-            refresh_token: result.refresh_token,
-            id_token: result.id_token,
-            expires_in: result.expires_in,
-            debug_logs: debugLogs // ← ЛОГИ ПРЯМО В ОТВЕТЕ
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            id_token: tokenData.id_token,
+            expires_in: tokenData.expires_in
         });
 
     } catch (error) {
-        debugLogs.push(`Error: ${error.message}`);
-        console.error('Error exchanging tokens:', error);
         return res.status(500).json({
             success: false,
             error: 'Token exchange failed',
-            details: error.message,
-            debug_logs: debugLogs // ← ЛОГИ ДАЖЕ ПРИ ОШИБКЕ
+            details: error.message
         });
     }
 }
 
-async function exchangeCodeForTokens(authorizationCode, debugLogs) {
-    // Сначала пробуем с основным Bundle ID (для iOS)
-    debugLogs.push('Пробуем с Bundle ID для iOS: com.astrDevProd.astrology');
-
+/**
+ * Пробует обменять authorization code сначала с Bundle ID (iOS), затем с Service ID (Android)
+ */
+async function exchangeCodeForTokens(authorizationCode) {
+    // Сначала пробуем с Bundle ID для iOS
     try {
         const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology');
-        const result = await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology', clientSecret);
-        debugLogs.push('✅ SUCCESS с Bundle ID (iOS авторизация)');
-        return result;
+        return await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology', clientSecret);
     } catch (error) {
-        debugLogs.push(`Bundle ID не сработал: ${error.message}`);
-
-        // Если не сработало, пробуем с Service ID (для Android)
-        debugLogs.push('Пробуем с Service ID для Android: com.astrDevProd.astrology.signin');
-
-        try {
-            const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology.signin');
-            const result = await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology.signin', clientSecret);
-            debugLogs.push('✅ SUCCESS с Service ID (Android авторизация)');
-            return result;
-        } catch (error2) {
-            debugLogs.push(`Service ID тоже не сработал: ${error2.message}`);
-            throw new Error(`Оба варианта не сработали. Bundle ID: ${error.message}, Service ID: ${error2.message}`);
-        }
+        // Если не сработало, пробуем с Service ID для Android
+        const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology.signin');
+        return await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology.signin', clientSecret);
     }
 }
 
+/**
+ * Выполняет обмен authorization code на токены
+ */
 async function attemptTokenExchange(authorizationCode, clientId, clientSecret) {
     const response = await fetch('https://appleid.apple.com/auth/token', {
         method: 'POST',
@@ -93,6 +76,9 @@ async function attemptTokenExchange(authorizationCode, clientId, clientSecret) {
     return await response.json();
 }
 
+/**
+ * Генерирует JWT client_secret для Apple API
+ */
 function generateAppleClientSecret(clientId) {
     const APPLE_TEAM_ID = 'W6MB6STC78';
     const APPLE_KEY_ID = 'UKGR4F4DC6';
@@ -106,11 +92,11 @@ K3ZU4pgW
     const now = Math.floor(Date.now() / 1000);
 
     const payload = {
-        iss: APPLE_TEAM_ID,
-        iat: now,
-        exp: now + 3600,
+        iss: APPLE_TEAM_ID,           // Team ID
+        iat: now,                     // Время создания
+        exp: now + 3600,              // Время истечения (1 час)
         aud: 'https://appleid.apple.com',
-        sub: clientId, // Используем переданный client_id
+        sub: clientId,                // client_id (Bundle ID или Service ID)
     };
 
     return jwt.sign(payload, APPLE_PRIVATE_KEY, {
