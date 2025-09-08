@@ -9,34 +9,35 @@ export default async function handler(req, res) {
     const params = req.method === 'POST' ? req.body : req.query;
 
     try {
-        // Если есть authorization code, обменяем его на токены
+        // ОБЯЗАТЕЛЬНО: Если есть authorization code, обменяем его на токены
         if (params.code) {
             console.log('Authorization code received, exchanging for tokens...');
 
             try {
                 const tokenResponse = await exchangeCodeForTokens(params.code);
-                console.log('Token exchange successful');
-
-                // ВАЖНО: Добавляем полученные токены к параметрам
-                if (tokenResponse.access_token) {
-                    params.access_token = tokenResponse.access_token;
-                }
-                if (tokenResponse.refresh_token) {
-                    params.refresh_token = tokenResponse.refresh_token;
-                }
-                if (tokenResponse.id_token) {
-                    params.id_token = tokenResponse.id_token;
-                }
-
-                console.log('Added tokens to params:', {
+                console.log('Token exchange successful:', {
                     hasAccessToken: !!tokenResponse.access_token,
                     hasRefreshToken: !!tokenResponse.refresh_token,
                     hasIdToken: !!tokenResponse.id_token
                 });
 
+                // КРИТИЧЕСКИ ВАЖНО: Добавляем полученные токены к параметрам
+                if (tokenResponse.access_token) {
+                    params.access_token = tokenResponse.access_token;
+                    console.log('✅ Access token получен и добавлен');
+                }
+                if (tokenResponse.refresh_token) {
+                    params.refresh_token = tokenResponse.refresh_token;
+                    console.log('✅ Refresh token получен и добавлен');
+                }
+                if (tokenResponse.id_token) {
+                    params.id_token = tokenResponse.id_token;
+                }
+
             } catch (error) {
-                console.error('Token exchange failed:', error);
-                // Продолжаем без токенов
+                console.error('❌ КРИТИЧЕСКАЯ ОШИБКА: Token exchange failed:', error);
+                // НЕ ПРОДОЛЖАЕМ без токенов - это проблема!
+                throw error;
             }
         }
 
