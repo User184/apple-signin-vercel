@@ -45,18 +45,40 @@ export default async function handler(req, res) {
 }
 
 async function exchangeCodeForTokens(authorizationCode, debugLogs) {
-    const clientSecret = generateAppleClientSecret();
+    // Сначала пробуем с основным Bundle ID (для iOS)
+    debugLogs.push('Пробуем с Bundle ID для iOS: com.astrDevProd.astrology');
 
-    debugLogs.push('Trying with main Bundle ID: com.astrDevProd.astrology');
-    console.log('Trying to exchange token with client_id: com.astrDevProd.astrology');
+    try {
+        const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology');
+        const result = await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology', clientSecret);
+        debugLogs.push('✅ SUCCESS с Bundle ID (iOS авторизация)');
+        return result;
+    } catch (error) {
+        debugLogs.push(`Bundle ID не сработал: ${error.message}`);
 
+        // Если не сработало, пробуем с Service ID (для Android)
+        debugLogs.push('Пробуем с Service ID для Android: com.astrDevProd.astrology.signin');
+
+        try {
+            const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology.signin');
+            const result = await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology.signin', clientSecret);
+            debugLogs.push('✅ SUCCESS с Service ID (Android авторизация)');
+            return result;
+        } catch (error2) {
+            debugLogs.push(`Service ID тоже не сработал: ${error2.message}`);
+            throw new Error(`Оба варианта не сработали. Bundle ID: ${error.message}, Service ID: ${error2.message}`);
+        }
+    }
+}
+
+async function attemptTokenExchange(authorizationCode, clientId, clientSecret) {
     const response = await fetch('https://appleid.apple.com/auth/token', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-            client_id: 'com.astrDevProd.astrology',
+            client_id: clientId,
             client_secret: clientSecret,
             code: authorizationCode,
             grant_type: 'authorization_code',
@@ -65,17 +87,13 @@ async function exchangeCodeForTokens(authorizationCode, debugLogs) {
 
     if (!response.ok) {
         const errorText = await response.text();
-        debugLogs.push(`Failed with main Bundle ID: ${response.status} - ${errorText}`);
-        console.error('Token exchange failed:', response.status, errorText);
-        throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
+        throw new Error(`${response.status} - ${errorText}`);
     }
 
-    debugLogs.push('✅ SUCCESS with main Bundle ID!');
-    console.log('SUCCESS with main Bundle ID!');
     return await response.json();
 }
 
-function generateAppleClientSecret() {
+function generateAppleClientSecret(clientId) {
     const APPLE_TEAM_ID = 'W6MB6STC78';
     const APPLE_KEY_ID = 'UKGR4F4DC6';
     const APPLE_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
@@ -92,7 +110,7 @@ K3ZU4pgW
         iat: now,
         exp: now + 3600,
         aud: 'https://appleid.apple.com',
-        sub: 'com.astrDevProd.astrology',
+        sub: clientId, // Используем переданный client_id
     };
 
     return jwt.sign(payload, APPLE_PRIVATE_KEY, {
