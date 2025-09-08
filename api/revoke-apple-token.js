@@ -15,6 +15,18 @@ export default async function handler(req, res) {
             hasAccessToken: !!accessToken
         });
 
+        // Определяем client_id из токена (если есть)
+        let detectedClientId = null;
+        if (identityToken) {
+            try {
+                const payload = JSON.parse(atob(identityToken.split('.')[1]));
+                detectedClientId = payload.aud;
+                console.log('Detected client_id from identity token:', detectedClientId);
+            } catch (error) {
+                console.log('Failed to decode identity token:', error.message);
+            }
+        }
+
         // Если есть authorizationCode, сначала обменяем его на токены
         let actualRefreshToken = refreshToken;
         let actualAccessToken = accessToken;
@@ -41,44 +53,23 @@ export default async function handler(req, res) {
             });
         }
 
-        console.log(`Attempting to revoke ${tokenType}`);
+        console.log(`Attempting to revoke ${tokenType} with client_id: ${detectedClientId || 'auto-detect'}`);
 
-        // Генерируем client_secret
-        const clientSecret = generateAppleClientSecret();
+        // Пробуем отозвать с правильным client_id
+        const revokeResult = await attemptTokenRevocation(tokenToRevoke, tokenType, detectedClientId);
 
-        // Отзываем токен
-        const revokeResponse = await fetch('https://appleid.apple.com/auth/revoke', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-                client_id: 'com.astrDevProd.astrology',
-                client_secret: clientSecret,
-                token: tokenToRevoke,
-                token_type_hint: tokenType
-            })
-        });
-
-        console.log('Apple revoke response status:', revokeResponse.status);
-
-        // Получаем текст ответа для отладки
-        const responseText = await revokeResponse.text();
-        console.log('Apple revoke response body:', responseText);
-
-        // Apple возвращает 200 для успешного отзыва
-        if (revokeResponse.status === 200) {
+        if (revokeResult.success) {
             return res.status(200).json({
                 success: true,
                 message: 'Token revoked successfully',
-                revokedTokenType: tokenType
+                revokedTokenType: tokenType,
+                usedClientId: revokeResult.clientId
             });
         } else {
             return res.status(400).json({
                 success: false,
                 error: 'Failed to revoke token',
-                appleStatus: revokeResponse.status,
-                appleResponse: responseText
+                details: revokeResult.error
             });
         }
 
@@ -92,16 +83,79 @@ export default async function handler(req, res) {
     }
 }
 
-async function exchangeCodeForTokens(authorizationCode) {
-    const clientSecret = generateAppleClientSecret();
+async function attemptTokenRevocation(token, tokenType, detectedClientId) {
+    // Список client_id для попытки (в порядке приоритета)
+    const clientIds = [];
 
+    if (detectedClientId) {
+        clientIds.push(detectedClientId);
+    }
+
+    // Добавляем оба варианта если не определили из токена
+    if (!detectedClientId || detectedClientId !== 'com.astrDevProd.astrology') {
+        clientIds.push('com.astrDevProd.astrology');
+    }
+    if (!detectedClientId || detectedClientId !== 'com.astrDevProd.astrology.signin') {
+        clientIds.push('com.astrDevProd.astrology.signin');
+    }
+
+    for (const clientId of clientIds) {
+        try {
+            console.log(`Trying to revoke with client_id: ${clientId}`);
+
+            const clientSecret = generateAppleClientSecret(clientId);
+            const response = await fetch('https://appleid.apple.com/auth/revoke', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    token: token,
+                    token_type_hint: tokenType
+                })
+            });
+
+            console.log(`Revoke response for ${clientId}: ${response.status}`);
+
+            if (response.status === 200) {
+                console.log(`✅ Successfully revoked with ${clientId}`);
+                return { success: true, clientId: clientId };
+            }
+
+            const errorText = await response.text();
+            console.log(`❌ Failed with ${clientId}: ${response.status} - ${errorText}`);
+        } catch (error) {
+            console.error(`Error with ${clientId}:`, error.message);
+        }
+    }
+
+    return {
+        success: false,
+        error: `Failed to revoke with all client_ids: ${clientIds.join(', ')}`
+    };
+}
+
+async function exchangeCodeForTokens(authorizationCode) {
+    // Используем ту же логику что и в exchange-token.js
+    try {
+        const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology');
+        return await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology', clientSecret);
+    } catch (error) {
+        const clientSecret = generateAppleClientSecret('com.astrDevProd.astrology.signin');
+        return await attemptTokenExchange(authorizationCode, 'com.astrDevProd.astrology.signin', clientSecret);
+    }
+}
+
+async function attemptTokenExchange(authorizationCode, clientId, clientSecret) {
     const response = await fetch('https://appleid.apple.com/auth/token', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-            client_id: 'com.astrDevProd.astrology',
+            client_id: clientId,
             client_secret: clientSecret,
             code: authorizationCode,
             grant_type: 'authorization_code',
@@ -110,14 +164,13 @@ async function exchangeCodeForTokens(authorizationCode) {
 
     if (!response.ok) {
         const errorText = await response.text();
-        console.error('Token exchange failed:', response.status, errorText);
-        throw new Error(`Token exchange failed: ${response.status}`);
+        throw new Error(`${response.status} - ${errorText}`);
     }
 
     return await response.json();
 }
 
-function generateAppleClientSecret() {
+function generateAppleClientSecret(clientId) {
     const APPLE_TEAM_ID = 'W6MB6STC78';
     const APPLE_KEY_ID = 'UKGR4F4DC6';
     const APPLE_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
@@ -134,7 +187,7 @@ K3ZU4pgW
         iat: now,
         exp: now + 3600,
         aud: 'https://appleid.apple.com',
-        sub: 'com.astrDevProd.astrology',
+        sub: clientId, // Используем правильный client_id
     };
 
     return jwt.sign(payload, APPLE_PRIVATE_KEY, {
