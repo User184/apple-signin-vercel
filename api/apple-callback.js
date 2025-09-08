@@ -92,7 +92,7 @@ K3ZU4pgW
         iat: now,
         exp: now + 3600,
         aud: 'https://appleid.apple.com',
-        sub: 'com.astrDevProd.astrology.signin',
+        sub: 'com.astrDevProd.astrology.signin',  // ← ВОЗВРАЩАЕМ
     };
 
     const clientSecret = jwt.sign(payload, APPLE_PRIVATE_KEY, {
